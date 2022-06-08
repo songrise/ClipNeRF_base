@@ -221,7 +221,7 @@ def spherify_poses(poses, bds):
     
     for th in np.linspace(0.,2.*np.pi, 120):
 
-        camorigin = np.array([radcircle * np.cos(th), radcircle * np.sin(th), zh])
+        camorigin = np.array([radcircle * np.cos(th), radcircle * np.sin(th), zh])/root/ClipNeRF_base/configs/fern.txt
         up = np.array([0,0,-1.])
 
         vec2 = normalize(camorigin)
@@ -314,6 +314,3 @@ def load_llff_data(basedir, factor=8, recenter=True, bd_factor=.75, spherify=Fal
     poses = poses.astype(np.float32)
 
     return images, poses, bds, render_poses, i_test
-
-
-

@@ -17,7 +17,8 @@ from load_llff import load_llff_data
 from load_deepvoxels import load_dv_data
 from load_blender import load_blender_data
 from load_LINEMOD import load_LINEMOD_data
-
+import tensorflow as tf
+# os.chdir("./ClipNeRF_base")
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 np.random.seed(0)
@@ -134,7 +135,7 @@ def render(H, W, K, chunk=1024*32, rays=None, c2w=None, ndc=True,
     return ret_list + [ret_dict]
 
 
-def render_path(render_poses, hwf, K, chunk, render_kwargs, gt_imgs=None, savedir=None, render_factor=0):
+def render_path(render_poses, hwf, K, chunk=32, render_kwargs=None, gt_imgs=None, savedir=None, render_factor=0):
 
     H, W, focal = hwf
 
@@ -422,7 +423,7 @@ def config_parser():
 
     import configargparse
     parser = configargparse.ArgumentParser()
-    parser.add_argument('--config', is_config_file=True, 
+    parser.add_argument('--config', default="./configs/fern.txt",is_config_file=True, 
                         help='config file path')
     parser.add_argument("--expname", type=str, 
                         help='experiment name')
@@ -619,6 +620,7 @@ def train():
             [0, 0, 1]
         ])
 
+
     if args.render_test:
         render_poses = np.array(poses[i_test])
 
@@ -638,6 +640,8 @@ def train():
 
     # Create nerf model
     render_kwargs_train, render_kwargs_test, start, grad_vars, optimizer = create_nerf(args)
+    # #! try
+    # render_kwargs_test['K']=K
     global_step = start
 
     bds_dict = {
@@ -705,8 +709,9 @@ def train():
     print('VAL views are', i_val)
 
     # Summary writers
-    # writer = SummaryWriter(os.path.join(basedir, 'summaries', expname))
-    
+    from torch.utils.tensorboard import SummaryWriter
+    writer = SummaryWriter(os.path.join(basedir,"summaries", expname))
+
     start = start + 1
     for i in trange(start, N_iters):
         time0 = time.time()
@@ -760,7 +765,7 @@ def train():
         rgb, disp, acc, extras = render(H, W, K, chunk=args.chunk, rays=batch_rays,
                                                 verbose=i < 10, retraw=True,
                                                 **render_kwargs_train)
-
+        print(rgb.shape)
         optimizer.zero_grad()
         img_loss = img2mse(rgb, target_s)
         trans = extras['raw'][...,-1]
@@ -808,12 +813,12 @@ def train():
             imageio.mimwrite(moviebase + 'rgb.mp4', to8b(rgbs), fps=30, quality=8)
             imageio.mimwrite(moviebase + 'disp.mp4', to8b(disps / np.max(disps)), fps=30, quality=8)
 
-            # if args.use_viewdirs:
-            #     render_kwargs_test['c2w_staticcam'] = render_poses[0][:3,:4]
-            #     with torch.no_grad():
-            #         rgbs_still, _ = render_path(render_poses, hwf, args.chunk, render_kwargs_test)
-            #     render_kwargs_test['c2w_staticcam'] = None
-            #     imageio.mimwrite(moviebase + 'rgb_still.mp4', to8b(rgbs_still), fps=30, quality=8)
+            if args.use_viewdirs:
+                render_kwargs_test['c2w_staticcam'] = render_poses[0][:3,:4]
+                with torch.no_grad():
+                    rgbs_still, _ = render_path(render_poses, hwf, args.chunk, render_kwargs=render_kwargs_test)
+                render_kwargs_test['c2w_staticcam'] = None
+                imageio.mimwrite(moviebase + 'rgb_still.mp4', to8b(rgbs_still), fps=30, quality=8)
 
         if i%args.i_testset==0 and i > 0:
             testsavedir = os.path.join(basedir, expname, 'testset_{:06d}'.format(i))
@@ -827,16 +832,18 @@ def train():
     
         if i%args.i_print==0:
             tqdm.write(f"[TRAIN] Iter: {i} Loss: {loss.item()}  PSNR: {psnr.item()}")
-        """
-            print(expname, i, psnr.numpy(), loss.numpy(), global_step.numpy())
-            print('iter time {:.05f}'.format(dt))
+        
+            # print(expname, i, psnr.detach(), loss.detach(), global_step)
+            # print('iter time {:.05f}'.format(dt))
 
             with tf.contrib.summary.record_summaries_every_n_global_steps(args.i_print):
-                tf.contrib.summary.scalar('loss', loss)
-                tf.contrib.summary.scalar('psnr', psnr)
-                tf.contrib.summary.histogram('tran', trans)
-                if args.N_importance > 0:
-                    tf.contrib.summary.scalar('psnr0', psnr0)
+                tf.contrib.summary.scalar('loss', loss.detach().cpu())
+                tf.contrib.summary.scalar('psnr', psnr.detach().cpu())
+                tf.contrib.summary.histogram('tran', trans.detach().cpu())
+                # if args.N_importance > 0:
+                #     tf.contrib.summary.scalar('psnr0', psnr0)
+                writer.add_scalar('loss',loss.detach().cpu())
+                writer.add_scalar('psnr',psnr.detach().cpu())
 
 
             if i%args.i_img==0:
@@ -844,30 +851,39 @@ def train():
                 # Log a rendered validation view to Tensorboard
                 img_i=np.random.choice(i_val)
                 target = images[img_i]
+    
                 pose = poses[img_i, :3,:4]
                 with torch.no_grad():
                     rgb, disp, acc, extras = render(H, W, focal, chunk=args.chunk, c2w=pose,
                                                         **render_kwargs_test)
-
-                psnr = mse2psnr(img2mse(rgb, target))
+                rgb=rgb.detach().cpu().numpy()
+                disp=disp.detach().cpu().numpy()
+                acc=acc.detach().cpu().numpy()
+                #convert from [1,H,W,3] to [H,W,3]
+                rgb_8b = to8b(rgb)
+                rgb_8b = np.transpose(rgb_8b,(2,0,1))
+                # psnr = mse2psnr(img2mse(rgb, target))
 
                 with tf.contrib.summary.record_summaries_every_n_global_steps(args.i_img):
 
-                    tf.contrib.summary.image('rgb', to8b(rgb)[tf.newaxis])
-                    tf.contrib.summary.image('disp', disp[tf.newaxis,...,tf.newaxis])
-                    tf.contrib.summary.image('acc', acc[tf.newaxis,...,tf.newaxis])
+                    # tf.contrib.summary.image('rgb', to8b(rgb)[tf.newaxis])
+                    # tf.contrib.summary.image('disp', disp[tf.newaxis,...,tf.newaxis])
+                    # tf.contrib.summary.image('acc', acc[tf.newaxis,...,tf.newaxis])
 
-                    tf.contrib.summary.scalar('psnr_holdout', psnr)
-                    tf.contrib.summary.image('rgb_holdout', target[tf.newaxis])
+                    # # tf.contrib.summary.scalar('psnr_holdout', psnr)
+                    # tf.contrib.summary.image('rgb_holdout', target[tf.newaxis])
 
+                    writer.add_image('rgb', rgb_8b, global_step=global_step)
+                    writer.add_image('disp',  disp[tf.newaxis,...], global_step=global_step)
+                    writer.add_image('acc',acc[tf.newaxis,...], global_step=global_step)
+                # if args.N_importance > 0:
 
-                if args.N_importance > 0:
+                #     with tf.contrib.summary.record_summaries_every_n_global_steps(args.i_img):
+                #         tf.contrib.summary.image('rgb0', to8b(extras['rgb0'])[tf.newaxis])
+                #         tf.contrib.summary.image('disp0', extras['disp0'][tf.newaxis,...,tf.newaxis])
+                #         tf.contrib.summary.image('z_std', extras['z_std'][tf.newaxis,...,tf.newaxis])
+        
 
-                    with tf.contrib.summary.record_summaries_every_n_global_steps(args.i_img):
-                        tf.contrib.summary.image('rgb0', to8b(extras['rgb0'])[tf.newaxis])
-                        tf.contrib.summary.image('disp0', extras['disp0'][tf.newaxis,...,tf.newaxis])
-                        tf.contrib.summary.image('z_std', extras['z_std'][tf.newaxis,...,tf.newaxis])
-        """
 
         global_step += 1
 
