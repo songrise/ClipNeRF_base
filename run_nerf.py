@@ -23,6 +23,7 @@ import tensorflow as tf
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 np.random.seed(0)
 DEBUG = False
+from sample_util import *
 
 
 def batchify(fn, chunk):
@@ -679,12 +680,14 @@ def train():
     N_rand = args.N_rand
     use_batching = not args.no_batching
     if use_batching:
+        #! modify this to use rays in the same image
         # For random ray batching
         print('get rays')
         rays = np.stack([get_rays_np(H, W, K, p) for p in poses[:,:3,:4]], 0) # [N, ro+rd, H, W, 3]
         print('done, concats')
         rays_rgb = np.concatenate([rays, images[:,None]], 1) # [N, ro+rd+rgb, H, W, 3]
         rays_rgb = np.transpose(rays_rgb, [0,2,3,1,4]) # [N, H, W, ro+rd+rgb, 3]
+        #! insert custom batching here
         rays_rgb = np.stack([rays_rgb[i] for i in i_train], 0) # train images only
         rays_rgb = np.reshape(rays_rgb, [-1,3,3]) # [(N-1)*H*W, ro+rd+rgb, 3]
         rays_rgb = rays_rgb.astype(np.float32)
@@ -717,6 +720,7 @@ def train():
         time0 = time.time()
 
         # Sample random ray batch
+        # ! modify ray generation logic
         if use_batching:
             # Random over all images
             batch = rays_rgb[i_batch:i_batch+N_rand] # [B, 2+1, 3*?]
