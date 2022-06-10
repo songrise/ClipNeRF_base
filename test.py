@@ -1,6 +1,14 @@
+
+#%%
+import pickle 
 import numpy as np
-a = np.zeros((1,400,400,3))
-a = np.squeeze(a,axis =0)
-#convert from HWC to CHW
-a = np.transpose(a,(2,0,1))
-print(a.shape)
+import matplotlib.pyplot as plt
+
+# Load the data
+target_s = pickle.load(open("/root/ClipNeRF_base/logs/fern_test/target_s.pkl", "rb"))
+target_s = target_s.cpu().numpy()
+# %%
+target_s = np.reshape(target_s, (40,40, -1))
+plt.imshow(target_s[:,:,:])
+
+# %%

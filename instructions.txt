@@ -1,0 +1,9 @@
+#####training
+python run_nerf.py --config="configs/lego.txt" --i_img=100
+nohup python run_nerf.py --config="configs/lego.txt" --i_img=500 --i_video=500 &
+
+nohup python run_nerf.py --config="configs/fern.txt" --i_img=500 --i_video=50000 &
+
+
+#####logging
+tensorboard --logdir="logs/summaries/fern_test" &

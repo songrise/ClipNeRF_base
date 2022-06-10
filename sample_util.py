@@ -113,6 +113,7 @@ def patchify_img(img, batch_size):
     result = result.reshape(result.shape[0]*L*L,img.shape[3])
     return result
 
+#%%
 if __name__ == '__main__':
     # raw_rays = torch.randn(1,800,800,6,3)
 
@@ -139,16 +140,18 @@ if __name__ == '__main__':
     plt.imshow(first_patch[:,:,:])
 
     #forge into ray shape
-    # img_raw = np.expand_dims(img_raw,axis = 3)
-    # sampled,i = sample_rays(img_raw,2)
-    # patch = patchify_ray(sampled,1600)
-    # p1 = patch[1600*15:1600*16,:,:]
-    # p1 = p1.astype(np.uint8)
-    # p1 = p1.reshape(40,40,-1)
+    img_raw = np.expand_dims(img_raw,axis = 3)
+    sampled,i = sample_rays(img_raw,4)
+    print(sampled.shape)
+    patch = patchify_ray(sampled,1600)
 
-    # plt.imshow(p1[:,:,:])
-    # print(sampled.shape)
-    # print(patch.shape)
+    p1 = patch[1600*4:1600*5,:,:]
+    p1 = p1.astype(np.uint8)
+    p1 = p1.reshape(40,40,-1)
+
+    plt.imshow(p1[:,:,:])
+    print(sampled.shape)
+    print(patch.shape)
 
 
     

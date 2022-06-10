@@ -19,8 +19,7 @@ from load_blender import load_blender_data
 from load_LINEMOD import load_LINEMOD_data
 import tensorflow as tf
 # os.chdir("./ClipNeRF_base")
-# disable tensorflow warnings
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # or any {'0', '1', '2'}
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 np.random.seed(0)
 DEBUG = False
@@ -114,10 +113,7 @@ def render(H, W, K, chunk=1024*32, rays=None, c2w=None, ndc=True,
     sh = rays_d.shape # [..., 3]
     if ndc:
         # for forward facing scenes
-        try:
-            rays_o, rays_d = ndc_rays(H, W, K[0][0], 1., rays_o, rays_d)
-        except:
-            rays_o, rays_d = ndc_rays(H, W, K, 1., rays_o, rays_d)
+        rays_o, rays_d = ndc_rays(H, W, K[0][0], 1., rays_o, rays_d)
 
     # Create ray batch
     rays_o = torch.reshape(rays_o, [-1,3]).float()
@@ -135,11 +131,7 @@ def render(H, W, K, chunk=1024*32, rays=None, c2w=None, ndc=True,
         all_ret[k] = torch.reshape(all_ret[k], k_sh)
 
     k_extract = ['rgb_map', 'disp_map', 'acc_map']
-    try:
-        ret_list = [all_ret[k] for k in k_extract]
-    except:
-        #! why will be empty at 2158 instances?
-        return []
+    ret_list = [all_ret[k] for k in k_extract]
     ret_dict = {k : all_ret[k] for k in all_ret if k not in k_extract}
     return ret_list + [ret_dict]
 
@@ -538,10 +530,6 @@ def config_parser():
     parser.add_argument("--i_video",   type=int, default=50000, 
                         help='frequency of render_poses video saving')
 
-    #! argument for clip-nerf
-    parser.add_argument("--w_clip", type=float, default=0.,help='weight of clip loss')
-    parser.add_argument("--stride", type=int, default=2,help="stride for sampling")
-
     return parser
 
 
@@ -691,7 +679,6 @@ def train():
     # Prepare raybatch tensor if batching random rays
     N_rand = args.N_rand
     use_batching = not args.no_batching
-    s_stride = args.stride
     if use_batching:
         #! modify this to use rays in the same image
         # For random ray batching
@@ -701,23 +688,17 @@ def train():
         rays_rgb = np.concatenate([rays, images[:,None]], 1) # [N, ro+rd+rgb, H, W, 3]
         rays_rgb = np.transpose(rays_rgb, [0,2,3,1,4]) # [N, H, W, ro+rd+rgb, 3]
         #! insert custom batching here
-        print("Patchify rays")
-        rays_rgb,sample_idx = sample_rays(rays_rgb,s_stride)
-        rays_rgb = patchify_ray(rays_rgb, 1600)#!todo
-        # rays_rgb = np.stack([rays_rgb[i] for i in i_train], 0) # train images only
-        # rays_rgb = np.reshape(rays_rgb, [-1,3,3]) # [(N-1)*H*W, ro+rd+rgb, 3]
+        rays_rgb = np.stack([rays_rgb[i] for i in i_train], 0) # train images only
+        rays_rgb = np.reshape(rays_rgb, [-1,3,3]) # [(N-1)*H*W, ro+rd+rgb, 3]
         rays_rgb = rays_rgb.astype(np.float32)
-
-        # print('shuffle rays')
-        # np.random.shuffle(rays_rgb)
+        print('shuffle rays')
+        np.random.shuffle(rays_rgb)
 
         print('done')
         i_batch = 0
 
     # Move training data to GPU
     if use_batching:
-        images,_ = sample_img(images,s_stride)
-        images = patchify_img(images, 1600)#!todo
         images = torch.Tensor(images).to(device)
     poses = torch.Tensor(poses).to(device)
     if use_batching:
@@ -742,31 +723,15 @@ def train():
         # ! modify ray generation logic
         if use_batching:
             # Random over all images
-            #! modified, fix to one patch per iter
-            #! todo remove magic batchsize
-            batch = rays_rgb[i_batch*1600:(i_batch+1)*1600] # [B, 2+1, 3*?]
-
-            if batch.shape[0] == 0:
-                #! skip this iter and reset batch index
-                i_batch = 0
-                continue
-            #! note, transposed into [N,3,3], where batch[2] seems to be g.t.
+            batch = rays_rgb[i_batch:i_batch+N_rand] # [B, 2+1, 3*?]
             batch = torch.transpose(batch, 0, 1)
             batch_rays, target_s = batch[:2], batch[2]
-            # export batch_rays and target_s for testing
-            # import pickle
-            # with open(os.path.join(basedir, expname, 'batch_rays.pkl'), 'wb') as f:
-            #     pickle.dump(batch_rays, f)
-            # with open(os.path.join(basedir, expname, 'target_s.pkl'), 'wb') as f:
-            #     pickle.dump(target_s, f)
-            # print("pickle done")
-            #!
-            i_batch += 1
-            # if i_batch >= rays_rgb.shape[0]:
-            #     print("Shuffle data after an epoch!")
-            #     rand_idx = torch.randperm(rays_rgb.shape[0])
-            #     rays_rgb = rays_rgb[rand_idx]
-            #     i_batch = 0
+            i_batch += N_rand
+            if i_batch >= rays_rgb.shape[0]:
+                print("Shuffle data after an epoch!")
+                rand_idx = torch.randperm(rays_rgb.shape[0])
+                rays_rgb = rays_rgb[rand_idx]
+                i_batch = 0
 
         else:
             # Random from one image
@@ -803,7 +768,7 @@ def train():
         rgb, disp, acc, extras = render(H, W, K, chunk=args.chunk, rays=batch_rays,
                                                 verbose=i < 10, retraw=True,
                                                 **render_kwargs_train)
-        # print(rgb.shape)
+        print(rgb.shape)
         optimizer.zero_grad()
         img_loss = img2mse(rgb, target_s)
         trans = extras['raw'][...,-1]

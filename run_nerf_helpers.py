@@ -163,16 +163,18 @@ class NeRF(nn.Module):
     # rays_o = c2w[:3,-1].expand(rays_d.shape)
     # return rays_o, rays_d
 
-#! Rewrite to fix K problem
+
 def get_rays(H, W, focal, c2w):
-    if not isinstance(focal, float):
-        if not isinstance(focal,int):
-            focal = focal[0][0]
-    #! K is the focal length in original impl
+    # if focal is indexable
+    if not isinstance(focal, np.float32):
+        if not isinstance (focal,int):
+            if not isinstance(focal,float):
+                focal = focal[0][0]
+
     i, j = torch.meshgrid(torch.linspace(0, W-1, W).cpu(), torch.linspace(0, H-1, H).cpu()) # pytorch's meshgrid has indexing='ij'
     i = i.t()
     j = j.t()
-    #! why K is a scalar?
+
     dirs = torch.stack([(i-H/2)/focal, -(j-W/2)/focal, -torch.ones_like(i)], -1)
     # Rotate ray directions from camera frame to the world frame
     rays_d = torch.sum(dirs[..., np.newaxis, :] * c2w[:3,:3].cpu(), -1)  # dot product, equals to: [c2w.dot(dir) for dir in dirs]
