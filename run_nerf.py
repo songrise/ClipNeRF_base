@@ -18,6 +18,7 @@ from load_deepvoxels import load_dv_data
 from load_blender import load_blender_data
 from load_LINEMOD import load_LINEMOD_data
 import tensorflow as tf
+import pickle
 # os.chdir("./ClipNeRF_base")
 # disable tensorflow warnings
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # or any {'0', '1', '2'}
@@ -25,6 +26,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 np.random.seed(0)
 DEBUG = False
 from sample_util import *
+import kornia
 
 
 def batchify(fn, chunk):
@@ -541,6 +543,8 @@ def config_parser():
     #! argument for clip-nerf
     parser.add_argument("--w_clip", type=float, default=0.,help='weight of clip loss')
     parser.add_argument("--stride", type=int, default=2,help="stride for sampling")
+    parser.add_argument("--use_clip", action='store_true', help='whether use clip loss')
+    parser.add_argument("--patch_size", type=int, default=1600, help='number of pixels in a patch')
 
     return parser
 
@@ -692,6 +696,7 @@ def train():
     N_rand = args.N_rand
     use_batching = not args.no_batching
     s_stride = args.stride
+    patch_size = args.patch_size
     if use_batching:
         #! modify this to use rays in the same image
         # For random ray batching
@@ -703,7 +708,7 @@ def train():
         #! insert custom batching here
         print("Patchify rays")
         rays_rgb,sample_idx = sample_rays(rays_rgb,s_stride)
-        rays_rgb = patchify_ray(rays_rgb, 1600)#!todo
+        rays_rgb = patchify_ray(rays_rgb, patch_size)
         # rays_rgb = np.stack([rays_rgb[i] for i in i_train], 0) # train images only
         # rays_rgb = np.reshape(rays_rgb, [-1,3,3]) # [(N-1)*H*W, ro+rd+rgb, 3]
         rays_rgb = rays_rgb.astype(np.float32)
@@ -717,7 +722,7 @@ def train():
     # Move training data to GPU
     if use_batching:
         images,_ = sample_img(images,s_stride)
-        images = patchify_img(images, 1600)#!todo
+        images = patchify_img(images, patch_size)
         images = torch.Tensor(images).to(device)
     poses = torch.Tensor(poses).to(device)
     if use_batching:
@@ -744,7 +749,7 @@ def train():
             # Random over all images
             #! modified, fix to one patch per iter
             #! todo remove magic batchsize
-            batch = rays_rgb[i_batch*1600:(i_batch+1)*1600] # [B, 2+1, 3*?]
+            batch = rays_rgb[i_batch*patch_size:(i_batch+1)*patch_size] # [B, 2+1, 3*?]
 
             if batch.shape[0] == 0:
                 #! skip this iter and reset batch index
@@ -754,7 +759,7 @@ def train():
             batch = torch.transpose(batch, 0, 1)
             batch_rays, target_s = batch[:2], batch[2]
             # export batch_rays and target_s for testing
-            # import pickle
+
             # with open(os.path.join(basedir, expname, 'batch_rays.pkl'), 'wb') as f:
             #     pickle.dump(batch_rays, f)
             # with open(os.path.join(basedir, expname, 'target_s.pkl'), 'wb') as f:
@@ -803,8 +808,15 @@ def train():
         rgb, disp, acc, extras = render(H, W, K, chunk=args.chunk, rays=batch_rays,
                                                 verbose=i < 10, retraw=True,
                                                 **render_kwargs_train)
+        #! debug here
         # print(rgb.shape)
+        # with open(os.path.join(basedir, expname, 'rgb.pkl'), 'wb') as f:
+        #     pickle.dump(rgb, f)
+        # with open(os.path.join(basedir, expname, 'target_s.pkl'), 'wb') as f:
+        #     pickle.dump(target_s, f)
+
         optimizer.zero_grad()
+
         img_loss = img2mse(rgb, target_s)
         trans = extras['raw'][...,-1]
         loss = img_loss

@@ -12,13 +12,14 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 
-def sample_rays(raw_rays:torch.Tensor,stride:int):
+def sample_rays(raw_rays:torch.Tensor,stride:int,retain:bool=False):
     """
     Stride-sample the raw rays.
     Params:
         raw_rays: [N, H, W, ro+rd+rgb, 3]
         batch_size: int, the size of batch used for one train iteration, assume always power of two.
         stride: int, the stride used for sampling.
+        retain: bool, if True, return the number of pixels sampled.
     return 
         concatenated rays [(N-1)*H*W, ro+rd+rgb, 3], must be used per batch to ensure sematic info.
     """
@@ -27,17 +28,25 @@ def sample_rays(raw_rays:torch.Tensor,stride:int):
 
     # assume H*W divisible by batch_size
     H, W = raw_rays.shape[1:3]
-    sample_idx = stride_sampled(H,W,stride)#todo remove magic number
-    sampled = raw_rays[:,sample_idx[0],sample_idx[1],:,:]
+
+    sample_idx = stride_sampled(H,W,stride,retain)
+    if not retain:
+        sampled = raw_rays[:,sample_idx[0],sample_idx[1],:,:]
+    else:
+        sampled = []
+        for i in range(0,stride**2,2):
+            sampled.append(raw_rays[:,sample_idx[i],sample_idx[i+1],:,:])
+        sampled = np.concatenate(sampled,axis=0)
     return sampled,sample_idx
 
-def sample_img(raw_img,stride:int):
+def sample_img(raw_img,stride:int,retain = False):
     """
     Stride-sample the raw rays.
     Params:
         raw_rays: [N, H, W, ro+rd+rgb, 3]
         batch_size: int, the size of batch used for one train iteration, assume always power of two.
         stride: int, the stride used for sampling.
+        retain: bool, if True, return the number of pixels sampled.
     return 
         concatenated rays [(N-1)*H*W, ro+rd+rgb, 3], must be used per batch to ensure sematic info.
     """
@@ -47,11 +56,17 @@ def sample_img(raw_img,stride:int):
     # assume H*W divisible by batch_size
     H, W = raw_img.shape[1:3]
 
-    sample_idx = stride_sampled(H,W,stride)#todo remove magic number
-    sampled = raw_img[:,sample_idx[0],sample_idx[1],:]
+    sample_idx = stride_sampled(H,W,stride,retain)
+    if not retain:
+        sampled = raw_img[:,sample_idx[0],sample_idx[1],:]
+    else:
+        sampled = []
+        for i in range(0,stride**2,2):
+            sampled.append(raw_img[:,sample_idx[i],sample_idx[i+1],:])
+        sampled = np.concatenate(sampled,axis=0)
     return sampled,sample_idx
 
-def stride_sampled(H,W,stride):
+def stride_sampled(H,W,stride,retain=False):
     """
     Stride-sample the raw rays.
     Params:
@@ -62,11 +77,18 @@ def stride_sampled(H,W,stride):
         The index of the sampled rays. each batch is a semantically meaningful img.
     """
     # for i in range(stride**2-1)
-    #todo implement sampling all pixels
     sample_idx = np.meshgrid(range(0,H,stride),range(0,W,stride))
+    if not retain:
+        return sample_idx
+
+    for i in range(0,stride):
+        for j in range(0,stride):
+            if i == j == 0:
+                continue
+            sample_idx += np.meshgrid(range(-i,H-i,stride),range(-j,W-j,stride))
     return sample_idx
 
-def patchify_ray(rays, batch_size):
+def patchify_ray(rays, patch_size):
     """
     Patchify the rays.
     Params:
@@ -78,7 +100,7 @@ def patchify_ray(rays, batch_size):
     #? ray rotated
     H, W = rays.shape[1:3]
     result = np.ones_like(rays)
-    L = int(np.sqrt(batch_size)) #length of the patch,assume equal to width
+    L = int(np.sqrt(patch_size)) #length of the patch,assume equal to width
     result = np.ones((rays.shape[0]*(H//L)*(W//L),L,L,rays.shape[3],rays.shape[4]))
     n_patch = 0
     for i in range(rays.shape[0]):
@@ -90,18 +112,18 @@ def patchify_ray(rays, batch_size):
     result = result.reshape(result.shape[0]*L*L,rays.shape[3],rays.shape[4])
     return result
 
-def patchify_img(img, batch_size):
+def patchify_img(img, patch_size):
     """
     Patchify the img.
     Params:
         img: [N,H, W, C]
-        batch_size: int, the size of batch used for one train iteration, assume always power of two.
+        patch_size: int, the size of batch used for one train iteration, assume always power of two.
     return 
-        concatenated rays [(N-1)*H*W, ro+rd+rgb, 3], must be used per batch to ensure sematic info.
+        concatenated rays [(N-1)*H*W, rgb], must be used per batch to ensure sematic info.
     """
     H, W = img.shape[1:3]
 
-    L = int(np.sqrt(batch_size)) #length of the patch,assume equal to width
+    L = int(np.sqrt(patch_size)) #length of the patch,assume equal to width
     result = np.ones((img.shape[0]*(H//L)*(W//L),L,L,img.shape[3]))
     n_patch = 0
     for i in range(img.shape[0]):
@@ -128,31 +150,43 @@ if __name__ == '__main__':
     import torch
     import cv2
     import matplotlib.pyplot as plt
-    img_raw = Image.open('/root/ClipNeRF_base/data/nerf_llff_data/fern/images_8/image000.png')
+    import torchvision
+    img_raw = Image.open('/root/ClipNeRF_base/data/flower/images_8/image000.png')
     img_raw = np.array(img_raw)
     img_raw = np.expand_dims(img_raw,0)
-    sampled, i = sample_img(img_raw,3)
-    img_patch = patchify_img(sampled,1600)
-    
-    first_patch = img_patch[1600*2:1600*3,:]
-    first_patch = first_patch.astype(np.uint8)
-    first_patch = first_patch.reshape(40,40,-1)
-    plt.imshow(first_patch[:,:,:])
+    sampled, i = sample_img(img_raw,3,retain=True)
+    img_patch = patchify_img(sampled,2500)
+
+    # plt.imshow(first_patch[:,:,:])
+
+    # grid visiualization
+    patches = img_patch.reshape(img_patch.shape[0]//2500,50,50,-1)
+    patches = patches.astype(np.uint8)
+    patches = torch.Tensor(patches)
+    patches = patches.permute(0,3,1,2)
+    patches_img=torchvision.utils.make_grid(patches[:,:,:,:],nrow=6,pad_value=3)
+    patches_img = patches_img.numpy()
+    patches_img = patches_img.transpose(1,2,0)
+    patches_img = patches_img.astype(np.uint8)
+    plt.imshow(patches_img)
 
     #forge into ray shape
-    img_raw = np.expand_dims(img_raw,axis = 3)
-    sampled,i = sample_rays(img_raw,4)
-    print(sampled.shape)
-    patch = patchify_ray(sampled,1600)
+    # img_raw = np.expand_dims(img_raw,axis = 3)
+    # sampled,i = sample_rays(img_raw,2,retain=True)
+    # print(sampled.shape)
+    # patch = patchify_ray(sampled,2500)
 
-    p1 = patch[1600*4:1600*5,:,:]
-    p1 = p1.astype(np.uint8)
-    p1 = p1.reshape(40,40,-1)
-
-    plt.imshow(p1[:,:,:])
-    print(sampled.shape)
-    print(patch.shape)
-
+    # # grid visiualization
+    # patches = patch.reshape(patch.shape[0]//2500,50,50,-1)
+    # patches = patches.astype(np.uint8)
+    # patches = torch.Tensor(patches)
+    # patches = patches.permute(0,3,1,2)
+    # patches_img=torchvision.utils.make_grid(patches[:,:,:,:],nrow=6,pad_value=3)
+    # patches_img = patches_img.numpy()
+    # patches_img = patches_img.transpose(1,2,0)
+    # patches_img = patches_img.astype(np.uint8)
+    # plt.imshow(patches_img)
+    # plt.show()
 
     
 # %%
