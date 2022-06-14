@@ -12,3 +12,5 @@ target_s = np.reshape(target_s, (40,40, -1))
 plt.imshow(target_s[:,:,:])
 
 # %%
+import kornia
+kornia.

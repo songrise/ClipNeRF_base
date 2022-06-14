@@ -27,6 +27,8 @@ np.random.seed(0)
 DEBUG = False
 from sample_util import *
 import kornia
+from criteria.clip_loss import CLIPLoss
+import clip
 
 
 def batchify(fn, chunk):
@@ -544,8 +546,10 @@ def config_parser():
     parser.add_argument("--w_clip", type=float, default=0.,help='weight of clip loss')
     parser.add_argument("--stride", type=int, default=2,help="stride for sampling")
     parser.add_argument("--use_clip", action='store_true', help='whether use clip loss')
-    parser.add_argument("--patch_size", type=int, default=1600, help='number of pixels in a patch')
-
+    parser.add_argument("--patch_size", type=int, default=2500, help='number of pixels in a patch')
+    #! only take effect when clip is on
+    parser.add_argument("--src_text", type=str, default='a photo of red flower', help='description of source')
+    parser.add_argument("--target_text", type=str, default='a photo of yellow flower', help='description of target')
     return parser
 
 
@@ -697,6 +701,7 @@ def train():
     use_batching = not args.no_batching
     s_stride = args.stride
     patch_size = args.patch_size
+    patch_width = int(np.sqrt(patch_size)) #! assume width == length
     if use_batching:
         #! modify this to use rays in the same image
         # For random ray batching
@@ -707,7 +712,7 @@ def train():
         rays_rgb = np.transpose(rays_rgb, [0,2,3,1,4]) # [N, H, W, ro+rd+rgb, 3]
         #! insert custom batching here
         print("Patchify rays")
-        rays_rgb,sample_idx = sample_rays(rays_rgb,s_stride)
+        rays_rgb,sample_idx = sample_rays(rays_rgb,s_stride,retain=True)
         rays_rgb = patchify_ray(rays_rgb, patch_size)
         # rays_rgb = np.stack([rays_rgb[i] for i in i_train], 0) # train images only
         # rays_rgb = np.reshape(rays_rgb, [-1,3,3]) # [(N-1)*H*W, ro+rd+rgb, 3]
@@ -721,13 +726,19 @@ def train():
 
     # Move training data to GPU
     if use_batching:
-        images,_ = sample_img(images,s_stride)
+        images,_ = sample_img(images,s_stride, retain=True)
         images = patchify_img(images, patch_size)
         images = torch.Tensor(images).to(device)
     poses = torch.Tensor(poses).to(device)
     if use_batching:
         rays_rgb = torch.Tensor(rays_rgb).to(device)
 
+    #! Do clip embedding here
+    #! temp not using the directional clip
+    src_desc = args.src_text
+    target_desc = args.target_text
+    target_desc = torch.cat([clip.tokenize(target_desc)]).to(device)
+    clip_loss = CLIPLoss()
 
     N_iters = 200000 + 1
     print('Begin')
@@ -815,17 +826,39 @@ def train():
         # with open(os.path.join(basedir, expname, 'target_s.pkl'), 'wb') as f:
         #     pickle.dump(target_s, f)
 
+        #! borrowed from official clipnerf
+        rgb_img = rgb.view(patch_width, patch_width, -1)
+        target = target_s.view(patch_width, patch_width, -1)
+        rgb_img = rgb_img.permute(2,0,1).unsqueeze(0)
+        #! img refer to sematically meaningful pixel tensor
+        rgb_img_gray = kornia.color.rgb_to_grayscale(rgb_img)
+        target_img = target.permute(2,0,1).unsqueeze(0)
+        target_img_gray = kornia.color.rgb_to_grayscale(target_img)
+
         optimizer.zero_grad()
 
-        img_loss = img2mse(rgb, target_s)
+        img_loss = img2mse(rgb_img_gray, target_img_gray)
         trans = extras['raw'][...,-1]
         loss = img_loss
         psnr = mse2psnr(img_loss)
 
         if 'rgb0' in extras:
-            img_loss0 = img2mse(extras['rgb0'], target_s)
+            rgb0_img = extras['rgb0'].view(patch_width, patch_width, -1)
+            rgb0_img = rgb0_img.permute(2,0,1).unsqueeze(0)
+            rgb0_img_gray = kornia.color.rgb_to_grayscale(rgb0_img)
+            img_loss0 = img2mse(rgb0_img_gray, target_img_gray)
             loss = loss + img_loss0
-            psnr0 = mse2psnr(img_loss0)
+        
+        if args.use_clip:
+            gen_img = rgb_img
+            c_loss = clip_loss(gen_img, target_desc)
+            loss = loss + c_loss * args.w_clip
+
+            if 'rgb0' in extras:
+                gen_img_rgb0 = extras['rgb0'].view(patch_width, patch_width, -1).permute(2,0,1).unsqueeze(0)
+                c_loss_rgb0 = clip_loss(gen_img_rgb0, target_desc)
+                loss = loss + c_loss_rgb0 * args.w_clip
+
 
         loss.backward()
         optimizer.step()
@@ -885,15 +918,17 @@ def train():
         
             # print(expname, i, psnr.detach(), loss.detach(), global_step)
             # print('iter time {:.05f}'.format(dt))
-
+            #! todo fix scalar 
             with tf.contrib.summary.record_summaries_every_n_global_steps(args.i_print):
-                tf.contrib.summary.scalar('loss', loss.detach().cpu())
-                tf.contrib.summary.scalar('psnr', psnr.detach().cpu())
-                tf.contrib.summary.histogram('tran', trans.detach().cpu())
+                # tf.contrib.summary.scalar('loss', loss.detach().cpu())
+                # tf.contrib.summary.scalar('psnr', psnr.detach().cpu())
+                # tf.contrib.summary.histogram('tran', trans.detach().cpu())
                 # if args.N_importance > 0:
                 #     tf.contrib.summary.scalar('psnr0', psnr0)
-                writer.add_scalar('loss',loss.detach().cpu())
-                writer.add_scalar('psnr',psnr.detach().cpu())
+                writer.add_scalar('loss',loss.detach().cpu(),global_step)
+                writer.add_scalar('psnr',psnr.detach().cpu(),global_step)
+                writer.add_scalar('c_loss',c_loss.detach().cpu(),global_step)
+
 
 
             if i%args.i_img==0:

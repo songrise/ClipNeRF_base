@@ -106,6 +106,7 @@ def patchify_ray(rays, patch_size):
     for i in range(rays.shape[0]):
         for j in range(H//L):
             for k in range(W//L):
+                # todo also sample patches for the boarder
                 result[n_patch,:,:,:] = rays[i,j*L:(j+1)*L,k*L:(k+1)*L,:]
                 n_patch+=1
     result = np.transpose(result,(0,2,1,3,4))

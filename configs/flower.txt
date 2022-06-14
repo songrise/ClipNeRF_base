@@ -13,3 +13,5 @@ N_importance = 64
 use_viewdirs = True
 raw_noise_std = 1e0
 
+use_clip=False
+stride=3

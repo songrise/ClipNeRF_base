@@ -1,0 +1,19 @@
+expname = flower_test
+basedir = ./logs
+datadir = ./data/nerf_llff_data/flower
+dataset_type = llff
+
+factor = 8
+llffhold = 8
+
+N_rand = 1024
+N_samples = 64
+N_importance = 64
+
+use_viewdirs = True
+raw_noise_std = 1e0
+
+use_clip=True
+stride=3
+target_text="a photo of yellow flowers"
+w_clip = 0.33
