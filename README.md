@@ -1,3 +1,14 @@
+# About this repo
+This repo contains my work as a Research Assistant at CityU, Hong Kong.
+
+
+In this repo I am trying to develop a baseline method to use CLIP to manipulate the radiance field predicted by NeRF. For a related literature, please view [Clip-NeRF](https://scholar.google.com/scholar_url?url=https://openaccess.thecvf.com/content/CVPR2022/html/Wang_CLIP-NeRF_Text-and-Image_Driven_Manipulation_of_Neural_Radiance_Fields_CVPR_2022_paper.html&hl=zh-CN&sa=T&oi=gsb&ct=res&cd=0&d=9170708679138992367&ei=e0ioYr_6LP6J6rQPzPSs-A8&scisig=AAGBfm2SrupHdCRswwklFZlswIm2qOlCow). Note that the above paper is not the exact one I am reproducing in this repo, there are some technical difference. To be more specific, we are trying to perform cross-domain scene-editing using a "specific" method (~~not gonna tell you which & how~~).
+
+Overall, the code in this project is not programmed with maintainability in mind. It is just to validate an idea. If you would like to play with the code, follow the readme below to set the environment. Also remember to check my `requirement.txt`. Then, you can refer to the argument in `run_nerf.py` and train your stylized scene.
+
+
+Feel free to contact me if you have any questions or discussion.
+
 # NeRF-pytorch
 
 

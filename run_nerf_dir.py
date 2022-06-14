@@ -1,3 +1,10 @@
+# -*- coding : utf-8 -*-
+# @FileName  : run_nerf_dir.py
+# @Author    : Ruixiang JIANG (Songrise)
+# @Time      : Jun 14, 2022
+# @Github    : https://github.com/songrise
+# @Description: forked from run_nerf.py at Jun 14. revised clip to dir loss, 
+# also include other changes:  
 import os, sys
 import numpy as np
 import imageio
@@ -28,7 +35,8 @@ np.random.seed(0)
 DEBUG = False
 from sample_util import *
 import kornia
-from criteria.clip_loss import CLIPLoss
+#! Jun 14: dir now
+from criteria.dir_loss import *
 import clip
 
 
@@ -699,6 +707,7 @@ def train():
             return
 
     # Prepare raybatch tensor if batching random rays
+    #! Jun 14: the batching is now revised as patching
     N_rand = args.N_rand
     use_batching = not args.no_batching
     s_stride = args.stride
@@ -735,12 +744,18 @@ def train():
     if use_batching:
         rays_rgb = torch.Tensor(rays_rgb).to(device)
 
+    #! Jun 14: init Directional Clip model 
+    clip_loss = CLIPLoss(device=device)
+    #! do not use the patch feature
+    clip_loss.compute_img2img_direction()
+
+
     #! Do clip embedding here
-    #! temp not using the directional clip
+    #! temp using the directional clip
     src_desc = args.src_text
     target_desc = args.target_text
-    target_desc = torch.cat([clip.tokenize(target_desc)]).to(device)
-    clip_loss = CLIPLoss()
+    # target_desc = torch.cat([clip.tokenize(target_desc)]).to(device)
+
 
     N_iters = 200000 + 1
     print('Begin')
@@ -827,42 +842,39 @@ def train():
         #     pickle.dump(rgb, f)
         # with open(os.path.join(basedir, expname, 'target_s.pkl'), 'wb') as f:
         #     pickle.dump(target_s, f)
+        optimizer.zero_grad()
 
-        #! borrowed from official clipnerf
+        #! borrowed from official clipnerf, reshape to a 2D image
         rgb_img = rgb.view(patch_width, patch_width, -1)
         target = target_s.view(patch_width, patch_width, -1)
         rgb_img = rgb_img.permute(2,0,1).unsqueeze(0)
-        #! img refer to sematically meaningful pixel tensor
-        #! Jun 14 temp disable grayscale
-        # rgb_img_gray = kornia.color.rgb_to_grayscale(rgb_img)
         target_img = target.permute(2,0,1).unsqueeze(0)
-        # target_img_gray = kornia.color.rgb_to_grayscale(target_img)
 
-        optimizer.zero_grad()
 
-        img_loss = img2mse(rgb_img, target_img)
-        trans = extras['raw'][...,-1]
-        loss = img_loss
-        psnr = mse2psnr(img_loss)
-
-        if 'rgb0' in extras:
-            rgb0_img = extras['rgb0'].view(patch_width, patch_width, -1)
-            rgb0_img = rgb0_img.permute(2,0,1).unsqueeze(0)
-            # rgb0_img_gray = kornia.color.rgb_to_grayscale(rgb0_img)
-            img_loss0 = img2mse(rgb0_img, target_img)
-            loss = loss + img_loss0
-        
+        #! Jun 14: when use clip loss, do not use MSE loss, also means finetuning
         if args.use_clip:
             gen_img = rgb_img
-            c_loss = clip_loss(gen_img, target_desc)
-            loss = loss + c_loss * args.w_clip
+            c_loss = clip_loss.clip_directional_loss(target_img,src_desc, gen_img,target_desc)
+            loss = c_loss
 
             if 'rgb0' in extras:
                 gen_img_rgb0 = extras['rgb0'].view(patch_width, patch_width, -1).permute(2,0,1).unsqueeze(0)
-                c_loss_rgb0 = clip_loss(gen_img_rgb0, target_desc)
-                loss = loss + c_loss_rgb0 * args.w_clip
+                c_loss_rgb0 = clip_loss.clip_directional_loss(target_img,src_desc, gen_img_rgb0,target_desc)
+                loss = loss + c_loss_rgb0 
+        else:
+            #! Jun 14: else only MSE loss over rgb channel
+            img_loss = img2mse(rgb_img, target_img)
+            trans = extras['raw'][...,-1]
+            loss = img_loss
+            psnr = mse2psnr(img_loss)
 
-
+            if 'rgb0' in extras:
+                rgb0_img = extras['rgb0'].view(patch_width, patch_width, -1)
+                rgb0_img = rgb0_img.permute(2,0,1).unsqueeze(0)
+                # rgb0_img_gray = kornia.color.rgb_to_grayscale(rgb0_img)
+                img_loss0 = img2mse(rgb0_img, target_img)
+                loss = loss + img_loss0
+            
         loss.backward()
         optimizer.step()
 
