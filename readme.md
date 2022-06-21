@@ -7,9 +7,11 @@ In this repo I am trying to develop a very naive baseline method that utilize [C
 
 Overall, the code in this project is not programmed with maintainability in mind. It is just to validate an idea. Feel free to contact me if you have any questions or discussion.
 
-![source](https://github.com/songrise/ClipNeRF_base/img/room.gif)
+Example: stylization using prompt "Cubism"
 
-![source](https://github.com/songrise/ClipNeRF_base/img/room_cubism.gif)
+![source](https://github.com/songrise/ClipNeRF_base/blob/main/img/room.gif?raw=true)
+
+![cubism](https://github.com/songrise/ClipNeRF_base/blob/main/img/room_cubism.gif?raw=true)
 
 ## Installation guide
 The baseline method are build upon two nerf implementations: [nerf-pytorch](https://github.com/yenchenlin/nerf-pytorch) and [nerf-pl](https://github.com/kwea123/nerf_pl). I have implemented the same baseline method with these two nerf code, and both has been tested on llff dataset. However, I will not maintain the nerf-pytorch implementation anymore.
