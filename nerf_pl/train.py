@@ -28,53 +28,19 @@ from pytorch_lightning.callbacks import ModelCheckpoint, Callback
 from pytorch_lightning import LightningModule, Trainer
 from pytorch_lightning.logging import TestTubeLogger
 
-class CheckpointEveryNSteps(Callback):
-    """
-    Save a checkpoint every N steps, instead of Lightning's default that checkpoints
-    based on validation loss.
-    """
-
-    def __init__(
-        self,
-        save_step_frequency,
-        prefix="N-Step-Checkpoint",
-        use_modelcheckpoint_filename=False,
-    ):
-        """
-        Args:
-            save_step_frequency: how often to save in steps
-            prefix: add a prefix to the name, only used if
-                use_modelcheckpoint_filename=False
-            use_modelcheckpoint_filename: just use the ModelCheckpoint callback's
-                default filename, don't use ours.
-        """
-        self.save_step_frequency = save_step_frequency
-        self.prefix = prefix
-        self.use_modelcheckpoint_filename = use_modelcheckpoint_filename
-
-    def on_batch_end(self, trainer, _):
-        """ Check if we should save a checkpoint after every train batch """
-        epoch = trainer.current_epoch
-        global_step = trainer.global_step
-        if global_step % self.save_step_frequency == 0:
-            if self.use_modelcheckpoint_filename:
-                filename = trainer.checkpoint_callback.filename
-            else:
-                filename =  "fintune.ckpt"
-            ckpt_path = os.path.join(trainer.checkpoint_callback.dirpath, filename)
-            trainer.save_checkpoint(ckpt_path)
 
 class NeRFSystem(LightningModule):
     def __init__(self, hparams):
         super(NeRFSystem, self).__init__()
         self.hparams = hparams
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        self
+
         if hparams.loss_type == 'mse':
             self.loss = loss_dict[hparams.loss_type]()
         elif hparams.loss_type == 'dirClip':
-            #! Jun 20: else, init loss 
-            pass
+            #! Jun 20: else, init loss laters
+            self.loss = None
+
         self.embedding_xyz = Embedding(3, 10) # 10 is the default number
         self.embedding_dir = Embedding(3, 4) # 4 is the default number
         self.embeddings = [self.embedding_xyz, self.embedding_dir]
@@ -84,9 +50,6 @@ class NeRFSystem(LightningModule):
         if hparams.N_importance > 0:
             self.nerf_fine = NeRF()
             self.models += [self.nerf_fine]
-        #! Jun 19: add clip models
-        # if hparams.loss_type == 'dirClip':
-        #     self.models += [self.clip_loss]
 
     def decode_batch(self, batch):
         #! Jun 18: r_0, r_d, near, far
@@ -120,32 +83,38 @@ class NeRFSystem(LightningModule):
 
     def prepare_data(self):
         dataset = dataset_dict[self.hparams.dataset_name]
+        #! Jun 22:  assume using the stride sampled dataset
         kwargs = {'root_dir': self.hparams.root_dir,
                   'img_wh': tuple(self.hparams.img_wh),
                   'stride': self.hparams.stride,
-                  'patch_size': self.hparams.patch_size,}
+                  'patch_size': self.hparams.patch_size}
         if self.hparams.dataset_name == 'llff':
             kwargs['spheric_poses'] = self.hparams.spheric_poses
             kwargs['val_num'] = self.hparams.num_gpus
+            
         self.train_dataset = dataset(split='train', **kwargs)
         self.val_dataset = dataset(split='val', **kwargs)
+        
 
-        #! Jun 20:  init clip loss here
 
 
     def configure_optimizers(self):
         self.optimizer = get_optimizer(self.hparams, self.models)
-        # scheduler = get_scheduler(self.hparams, self.optimizer)
+        if self.hparams.lr_scheduler == 'none':
+            return self.optimizer
+
+        scheduler = get_scheduler(self.hparams, self.optimizer)
         
-        # return [self.optimizer], [scheduler]
-        return [self.optimizer]
+        return [self.optimizer], [scheduler]
+        # return [self.optimizer]
 
 
     def train_dataloader(self):
         #! Jun 19: permute patches
         train_idx = torch.arange(len(self.train_dataset))
         sampler = RandBatchSampler(train_idx, self.hparams.patch_size)
-        #todo temp not used
+        self.patch_w = int(np.sqrt(self.hparams.patch_size))# assume all patches are square
+        #! Jun 22: shuffle disabled for finetuning
         return DataLoader(self.train_dataset,
                           num_workers=4,
                           shuffle=False,
@@ -173,7 +142,9 @@ class NeRFSystem(LightningModule):
         if self.hparams.loss_type == 'mse':
             log['train/loss'] = loss = self.loss(results, rgbs)
         elif self.hparams.loss_type == 'dirClip':
-            log['train/clip_loss'] = loss = self.loss(rgbs,self.hparams.src_text, results, self.hparams.target_text)
+            log['train/clip_loss'] = loss = self.loss(rgbs,self.hparams.src_text, results, \
+                self.hparams.target_text, self.patch_w,self.patch_w)
+        
         #! dump rgbs to test
         # import pickle
         # with open('test_rgbs.pkl', 'wb') as f:

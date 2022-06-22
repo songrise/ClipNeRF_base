@@ -16,8 +16,8 @@ def get_optimizer(hparams, models):
         optimizer = SGD(parameters, lr=hparams.lr, 
                         momentum=0.0, weight_decay=0.0)
     elif hparams.optimizer == 'adam':
-        optimizer = Adam(parameters, lr=1e-6, eps=eps, 
-                         weight_decay=hparams.weight_decay)#todo magic
+        optimizer = Adam(parameters, lr=hparams.lr, eps=eps, 
+                         weight_decay=hparams.weight_decay)
     elif hparams.optimizer == 'radam':
         optimizer = RAdam(parameters, lr=hparams.lr, eps=eps, 
                           weight_decay=hparams.weight_decay)
@@ -52,7 +52,8 @@ def get_scheduler(hparams, optimizer):
 
 def get_learning_rate(optimizer):
     for param_group in optimizer.param_groups:
-        #! Jun 21: modify lr here
+        #!!!! important
+        #! Jun 21: modify lr here, hardcoded for Adam optimizer
         param_group['lr'] = 1e-4
         return param_group['lr']
 

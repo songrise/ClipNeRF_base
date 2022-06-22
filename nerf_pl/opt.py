@@ -54,7 +54,7 @@ def get_opts():
                         help='weight decay')
     parser.add_argument('--lr_scheduler', type=str, default='steplr',
                         help='scheduler type',
-                        choices=['steplr', 'cosine', 'poly'])
+                        choices=['steplr', 'cosine', 'poly', 'none'])
     #### params for warmup, only applied when optimizer == 'sgd' or 'adam'
     parser.add_argument('--warmup_multiplier', type=float, default=1.0,
                         help='lr is multiplied by this factor after --warmup_epochs')
