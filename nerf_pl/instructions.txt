@@ -39,9 +39,9 @@ python eval.py \
    --img_wh 504 378 --N_importance 64 --ckpt_path /root/autodl-tmp/nerf_pl/ckpts/room/epoch=14.ckpt
 
 python eval.py \
-   --root_dir "/root/autodl-tmp/ClipNeRF_base/nerf-pytorch/data/nerf_llff_data/room" \
-   --dataset_name llff --scene_name room_skech \
-   --img_wh 504 378 --N_importance 64 --ckpt_path /root/autodl-tmp/ClipNeRF_base/nerf_pl/ckpts/room_sketch/epoch=7.ckpt
+   --root_dir "/root/autodl-tmp/ClipNeRF_base/nerf_pl/data/nerf_llff/fangzhou_nature" \
+   --dataset_name llff --scene_name fangzhou \
+   --img_wh 270 480 --N_importance 64 --ckpt_path /root/autodl-tmp/ClipNeRF_base/nerf_pl/ckpts/fangzhou/fangzhou_pretrained.ckpt
 
 # fine tune with clip
 nohup python train.py \
@@ -54,6 +54,7 @@ nohup python train.py \
    --exp_name room_clip_galaxy  \
    --target_text "Colorful galaxy" \
    --loss_type "dirClip" --ckpt_path /root/autodl-tmp/nerf_pl/ckpts/room/pretrained.ckpt &
+
 
 #! Pixar style 3D scene
 python train.py \
@@ -69,15 +70,24 @@ python train.py \
 
 
 # finetune head
-python train.py \
+nohup python train.py \
    --dataset_name llff \
    --root_dir  "/root/autodl-tmp/ClipNeRF_base/nerf_pl/data/nerf_llff/fangzhou_nature" \
    --N_importance 64 --img_wh 270 480 \
    --num_epochs 30 --batch_size 1024 \
    --optimizer adam --lr 5e-5 \
    --lr_scheduler none --decay_step 1 2 --decay_gamma 0.1 \
-   --exp_name room_tone  \
-   --target_text "Vincent van Gogh portrait" \
-   --loss_type "dirClip" --ckpt_path /root/autodl-tmp/ClipNeRF_base/nerf_pl/ckpts/fangzhou/fangzhou_pretrained.ckpt
+   --exp_name fangzhou_lord\
+   --stride 2\
+   --target_text "Lord Voldemort" \
+   --loss_type "dirClip" --ckpt_path /root/autodl-tmp/ClipNeRF_base/nerf_pl/ckpts/fangzhou/fangzhou_pretrained.ckpt &
+
+
+#validation of head
+python eval.py \
+   --root_dir "/root/autodl-tmp/ClipNeRF_base/nerf_pl/data/nerf_llff/fangzhou_nature" \
+   --dataset_name llff --scene_name fangzhou_lord \
+   --img_wh 270 480 --N_importance 64 --ckpt_path /root/autodl-tmp/ClipNeRF_base/nerf_pl/ckpts/fangzhou_lord/epoch=17.ckpt
+
 
 nohup  tensorboard --logdir logs/ & 
